@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+
+<head>
+    <title>Login</title>
+</head>
+<html>
+
+<body>
+    <script>
+
+        function sendData() {
+            var myObj = { username: document.getElementById("username"), password: document.getElementById("pwd") }
+            var myJSON = JSON.stringify(myObj);
+            xmlhttp.open("GET", "rest/users", true);
+            xmlhttp.setRequestHeader("Content-type", "application/json")
+            xmlhttp.setRequestHeader("Accept", "application/json");
+            xmlhttp.send(myJSON);
+        }
+
+
+        xmlhttp.onreadystatechange = function () {
+            if (xmlhttp.readyState == 4)
+            {
+                if (xmlhttp.status == 200) 
+                {
+                    window.location.href = "/Menu.html";
+                }
+                else
+                {
+                    if (xmlhttp.status == 401)
+                        alert("401: unauthorized" + xmlhttp.responseText);
+                }
+            }
+        }
+
+    </script>
+
+
+    <h1>Login</h1>
+    <HR>
+    <table>
+
+        <p>Username <input id="accept_in" type="text"></p>
+        <p>Password <input id="pwd" type="password"></p>
+    </table>
+    <HR>
+    <a href='Register.html'>Create Account</a>
+    <p><input type="button" value="Login" onclick="sendData()">
+</body>
+
+</html>

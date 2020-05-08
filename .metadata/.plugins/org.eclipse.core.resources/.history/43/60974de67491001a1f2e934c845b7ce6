@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Password</title>
+<style>
+body {
+	background-color: lightblue;
+	padding: 30px;
+}
+</style>
+<script>
+	xmlhttp = new XMLHttpRequest();
+	
+	var token = null;
+	
+    function doLogin(){
+        var mainDiv = document.getElementById("LogedInPage" );
+        var divLogin = document.getElementById("login");
+        
+        var usernameV = document.getElementById("usernameBox" );
+        var passwordV = document.getElementById("passwordBox" );
+        
+        xmlhttp.onreadystatechange = function() {
+            if (xmlhttp.readyState == 4){
+                if(xmlhttp.status == 200) { 
+                	// no login apenas tem de guardar o token
+                    token = JSON.parse(xmlhttp.responseText);
+                    //div.innerHTML = 
+                    	
+                    // hide the login part
+                    divLogin.style.display = "none";
+                    
+                   	// show main div
+                    mainDiv.style.display = "block";
+                    
+                } else {
+                	alert(xmlhttp.responseText);
+                }
+            }
+        }
+        var loginObj = {username: usernameV, password:passwordV};
+        var loginData = JSON.stringify(loginObj);
+        xmlhttp.open("POST","https://thermal-list-270314.appspot.com/rest/login/v3" ,true);
+        xmlhttp.send(loginData);
+    }
+    
+</script>
+</head>
+<body>
+	<DIV id ="login">
+	<p style="font-size: 20pt;">Login on GeologyLive</p>
+	<p>
+		Username: <input id="usernameBox" type="text" />
+	</p>
+	<p>
+		Password: <input id="passwordBox" type="password" />
+	</p>
+	<button type="button" onclick="doLogin()">Login</button>
+	<p>
+		<button type="button" onclick="doLogin()">Not a member yet? Register in GeologyLive! And be part of the movement</button>
+	</p>
+	</DIV>
+	
+	<DIV id="LogedInPage">
+	<P>Logged In</P> 
+	<p> Operations: </p>
+	</DIV>
+	
+</body>
+</html>

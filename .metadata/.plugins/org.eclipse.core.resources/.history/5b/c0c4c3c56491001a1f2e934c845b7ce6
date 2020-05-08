@@ -1,0 +1,255 @@
+package pt.unl.fct.di.apdc.firstwebapp.accessControl;
+
+import com.google.cloud.datastore.Key;
+import com.google.cloud.datastore.PathElement;
+
+import pt.unl.fct.di.apdc.firstwebapp.resources.LoginResource;
+import pt.unl.fct.di.apdc.firstwebapp.util.AuthToken;
+import pt.unl.fct.di.apdc.firstwebapp.util.UserRole;
+
+import java.util.logging.Logger;
+
+import com.google.cloud.datastore.Datastore;
+import com.google.cloud.datastore.DatastoreOptions;
+import com.google.cloud.datastore.Entity;
+import com.google.cloud.datastore.Transaction;
+
+public class AccessControl
+{
+
+	private static final Logger LOG = Logger.getLogger(LoginResource.class.getName());
+	private final Datastore datastore = DatastoreOptions.getDefaultInstance().getService();
+
+	public AccessControl()
+	{
+
+	}
+
+	public AuthToken createToken(String username)
+	{
+		AuthToken token = new AuthToken(username);
+
+		Key tokenKey = datastore.newKeyFactory().addAncestor(PathElement.of("User", username)).setKind("Token")
+				.newKey(token.tokenID);
+
+		Key isValidTokenKey = datastore.newKeyFactory().addAncestor(PathElement.of("Token", token.tokenID))
+				.setKind("TokenValid").newKey(token.tokenID);
+
+		Transaction txn = datastore.newTransaction();
+		try
+		{
+			Entity storedToken = Entity.newBuilder(tokenKey).set("creationData", token.creationData)
+					.set("expirationData", token.expirationData).build();
+
+			Entity tokenIsValid = Entity.newBuilder(isValidTokenKey).set("isValid", true).build();
+
+			txn.add(storedToken, tokenIsValid);
+			txn.commit();
+
+			return token;
+
+		} catch (Exception e)
+		{
+			txn.rollback();
+			LOG.severe("Added a token with an existing tokenID, maybe need to change key for tokens");
+			LOG.severe(e.getMessage());
+			return null;
+
+		} finally
+		{
+			if (txn.isActive())
+			{
+				txn.rollback();
+			}
+		}
+
+	}
+
+	public boolean validateToken(AuthToken token)
+	{
+
+		// validate token expiration data
+		if (System.currentTimeMillis() > token.expirationData)
+		{
+			invalidateToken(token);
+			return false;
+		}
+
+		Key tokenKey = datastore.newKeyFactory().addAncestor(PathElement.of("User", token.username)).setKind("Token")
+				.newKey(token.tokenID);
+
+		Key isValidTokenKey = datastore.newKeyFactory().addAncestor(PathElement.of("Token", token.tokenID))
+				.setKind("TokenValid").newKey(token.tokenID);
+
+		Entity storedToken = datastore.get(tokenKey);
+
+		Entity tokenIsValid = datastore.get(isValidTokenKey);
+
+		// if has combination of username and tokenID stored, this two fields are
+		// checked
+		if (storedToken == null || tokenIsValid == null)
+		{
+			return false;
+		}
+
+		// the check of the username and tokenID is done above
+		return (token.creationData == storedToken.getLong("creationData"))
+				&& (token.expirationData == storedToken.getLong("expirationData"))
+				&& (tokenIsValid.getBoolean("isValid"));
+
+	}
+
+	/*
+	 * pre: verify token
+	 */
+	public void invalidateToken(AuthToken token)
+	{
+
+		Key isValidTokenKey = datastore.newKeyFactory().addAncestor(PathElement.of("Token", token.tokenID))
+				.setKind("TokenValid").newKey(token.tokenID);
+
+		Entity tokenIsValid = Entity.newBuilder(isValidTokenKey).set("isValid", false).build();
+		datastore.put(tokenIsValid);
+	}
+
+	// --------------- VALIDATION OF ROLE; ACCESS PERMISSIONS-------------------
+	// -------------------------------------------------------------------------
+
+	public boolean canLogin(String username)
+	{
+		Key rolesKey = datastore.newKeyFactory().addAncestor(PathElement.of("User", username)).setKind("Roles")
+				.newKey("roles");
+
+		Entity rolesEnt = datastore.get(rolesKey);
+
+		if (rolesEnt == null)
+		{
+			LOG.severe("User : '" + username + "' has no roles stored");
+			return false;
+		}
+
+		long roles = rolesEnt.getLong("roles");
+
+		if (roles > 0L)
+			return true;
+		else
+			return false;
+
+	}
+
+	public boolean validatePermission(String username, UserRole[] roles)
+	{
+
+		Key rolesKey = datastore.newKeyFactory().addAncestor(PathElement.of("User", username)).setKind("Roles")
+				.newKey("roles");
+
+		Entity rolesEnt = datastore.get(rolesKey);
+
+		if (rolesEnt == null)
+		{
+			LOG.severe("User : '" + username + "' has no roles stored");
+			return false;
+		}
+
+		long storedRoles = rolesEnt.getLong("roles");
+
+		for (UserRole role : roles)
+		{
+			if ((1 << (role.getRole() - 1) & storedRoles) > 0)
+			{
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/*
+	 * Roles are stored in a long with each bit getting a new Role
+	 */
+	public boolean editRole(String username, UserRole role, boolean isUpgradeRole)
+	{
+
+		Key rolesKey = datastore.newKeyFactory().addAncestor(PathElement.of("User", username)).setKind("Roles")
+				.newKey("roles");
+
+		Transaction txn = datastore.newTransaction();
+		try
+		{
+			Entity rolesEntity = txn.get(rolesKey);
+
+			if (rolesEntity == null)
+			{
+				LOG.severe("ERROR : User does not have roles assigned!");
+				return false;
+			}
+
+			long roles = rolesEntity.getLong("roles");
+
+			// if the user is SU -> do nothing, can not mess with SU Role
+			if ((roles & (1 << (UserRole.SU.getRole() - 1))) > 0)
+			{
+				LOG.severe("Tried to change SU Role");
+				return false;
+			}
+
+			long roleMask = role.getRole() - 1;
+			if (isUpgradeRole)
+			{
+				roles |= 1 << (roleMask);
+			} else
+			{
+				roles &= ~(1 << (roleMask));
+			}
+
+			Entity upgradedRoles = Entity.newBuilder(rolesKey).set("roles", roles).build();
+
+			txn.put(upgradedRoles);
+			txn.commit();
+
+			return true;
+
+		} catch (Exception e)
+		{
+			txn.rollback();
+			LOG.severe(e.getMessage());
+			return false;
+		} finally
+		{
+			if (txn.isActive())
+			{
+				txn.rollback();
+				return false;
+			}
+		}
+
+	}
+
+	public boolean disableAllPermissions(String username)
+	{
+
+		Key rolesKey = datastore.newKeyFactory().addAncestor(PathElement.of("User", username)).setKind("Roles")
+				.newKey("roles");
+
+		Entity userRoles = datastore.get(rolesKey);
+
+		// check if the username belongs to a valid account
+		if (userRoles == null)
+		{
+			return false;
+		}
+
+		Entity uUserRoles = Entity.newBuilder(rolesKey).set("roles", 0L) 
+				.build();
+
+		datastore.put(uUserRoles);
+		return true;
+	}
+	public boolean deleteUser(String username)
+	{
+		Key user = datastore.newKeyFactory().setKind("User").newKey(username);
+		datastore.delete(user);
+		return true;
+	}
+
+}

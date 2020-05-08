@@ -1,0 +1,153 @@
+package pt.unl.fct.di.apdc.firstwebapp.resources;
+
+import java.util.logging.Logger;
+
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.POST;
+import javax.ws.rs.Path;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status;
+
+import pt.unl.fct.di.apdc.firstwebapp.accessControl.AccessControl;
+import pt.unl.fct.di.apdc.firstwebapp.util.AuthToken;
+import pt.unl.fct.di.apdc.firstwebapp.util.UserRole;
+
+@Path("/editUser")
+@Produces(MediaType.APPLICATION_JSON + ";charset=utf-8")
+public class EditUserResource
+{
+
+	public EditUserResource()
+	{
+	}
+
+	private static final Logger LOG = Logger.getLogger(LoginResource.class.getName());
+
+	private AccessControl control = new AccessControl();
+
+	@POST
+	@Path("/editRole/{username}/{role}/{isToUpgrade}")
+	@Consumes(MediaType.APPLICATION_JSON)
+	public Response changeRole(@PathParam("username") String username, @PathParam("role") int role,
+			@PathParam("isToUpgrade") boolean isToUpgrade, AuthToken token)
+	{
+
+		LOG.fine("Attempt to upgrade role");
+
+		if (token.username == username)
+		{
+			LOG.fine("User can not change own role");
+			return Response.status(Status.FORBIDDEN).entity("Can not change own role").build();
+		}
+
+		if (role == UserRole.SU.getRole())
+		{
+			LOG.severe("Someone tried to make a SU user, not possible..");
+			return Response.status(Status.FORBIDDEN).entity("Hey! You can not make SU").build();
+		}
+
+		if (!control.validateToken(token))
+		{
+			LOG.fine("Token not valid, from : '" + token.username + "'");
+			return Response.status(Status.FORBIDDEN).entity("Token is not valid").build();
+		}
+
+		UserRole[] roles = { UserRole.GS, UserRole.SU };
+		if (!control.validatePermission(token.username, roles))
+		{
+			LOG.warning("User '" + token.username + "' without permission tried to change roles");
+			return Response.status(Status.FORBIDDEN).entity("No permission to change role").build();
+		}
+
+		UserRole editRole = UserRole.values()[role - 1]; // the roles id start in 1
+		boolean edited = control.editRole(username, editRole, isToUpgrade);
+
+		if (edited)
+		{
+			LOG.fine("Changed roled of the user '" + username + "'");
+			return Response.ok("{}").build();
+		} else
+		{
+			return Response.status(Status.FORBIDDEN).entity("FORBIDDEN: Log contains specific error").build();
+		}
+	}
+
+	@POST
+	@Path("/disableUser/{username}")
+	@Consumes(MediaType.APPLICATION_JSON)
+	public Response disableUser(@PathParam("username") String username, AuthToken token)
+	{
+
+		LOG.fine("Attempt to disable account : '" + username + "'");
+
+		if (!control.validateToken(token))
+		{
+			LOG.fine("Token not valid, from : '" + token.username + "'");
+			return Response.status(Status.FORBIDDEN).entity("Token is not valid").build();
+		}
+
+		// can only disable own account or others if have privileges
+		if (!token.username.equals(username))
+		{
+			UserRole[] roles = { UserRole.GS, UserRole.SU };
+			if (!control.validatePermission(token.username, roles))
+			{
+				LOG.fine("Do not have permissions to disable other users accounts");
+				return Response.status(Status.FORBIDDEN)
+						.entity("Does not have privileges to disable other users accounts").build();
+			}
+		}
+
+		if (control.disableAllPermissions(username))
+		{
+			LOG.fine("Account disabled : '" + username + "'");
+			return Response.ok("{}").build();
+
+		} else
+		{
+			LOG.warning("Tried To disable unexistent user : '" + username + "'");
+			return Response.status(Status.FORBIDDEN).build();
+		}
+	}
+
+	@DELETE
+	@Path("/deleteUser/{username}")
+	@Consumes(MediaType.APPLICATION_JSON)
+	public Response deleteUser(AuthToken token, String username)
+	{
+		LOG.fine("Attempt to delete account : '" + username + "'");
+
+		if (!control.validateToken(token))
+		{
+			LOG.fine("Token not valid, from : '" + token.username + "'");
+			return Response.status(Status.FORBIDDEN).entity("Token is not valid").build();
+		}
+
+		if (!token.username.equals(username))
+		{
+			UserRole[] roles = { UserRole.GS, UserRole.SU };
+			if (!control.validatePermission(token.username, roles))
+			{
+				LOG.fine("Do not have permission to delete another user's account");
+				return Response.status(Status.FORBIDDEN)
+						.entity("Does not have privileges to delete another user's account").build();
+			}
+		}
+
+		if (control.disableAllPermissions(username))
+		{
+			LOG.fine("Account disabled : '" + username + "'");
+			return Response.ok("{}").build();
+
+		} else
+		{
+			LOG.warning("Tried To disable unexistent user : '" + username + "'");
+			return Response.status(Status.FORBIDDEN).build();
+		}
+	}
+
+}
